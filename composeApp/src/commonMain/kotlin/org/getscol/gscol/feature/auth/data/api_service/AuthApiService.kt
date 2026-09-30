@@ -20,9 +20,9 @@ interface AuthApiService {
         password: String
     ): Result<LoginResponse, DataError>
 
-    suspend fun verifyOtp(otp: String): Result<OtpVerificationResponse, DataError>
+    suspend fun verifyOtp(otp: String, otpAccessToken: String): Result<OtpVerificationResponse, DataError>
 
-    suspend fun resendOtp(): Result<ResendOtpResponse, DataError>
+    suspend fun resendOtp(otpAccessToken: String): Result<ResendOtpResponse, DataError>
 
     suspend fun forgotPassword(
         phone: String,

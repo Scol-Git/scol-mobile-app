@@ -1,6 +1,5 @@
 package org.getscol.gscol.core.domain
 
-import org.getscol.gscol.core.data.dto.auth.AuthTokenResponse
 import org.getscol.gscol.core.domain.Error as Err
 
 sealed interface Result<out D, out E : Err> {

@@ -32,6 +32,8 @@ class AppSession(
     private val _userJoinedAt = MutableStateFlow<Int?>(null)
     override val userJoinedAt: StateFlow<Int?> = _userJoinedAt.asStateFlow()
 
+    override var otpAccessToken: String? = null
+
     init {
         appScope.launch(Dispatchers.Default) {
             _isUserLoggedIn.value = localStorage.getBoolean(StorageKeys.IS_USER_LOGGED_IN) ?: false
@@ -79,6 +81,7 @@ class AppSession(
 
         _userFullName.value = null
         _userJoinedAt.value = null
+        otpAccessToken = null
         localStorage.clear()
     }
 

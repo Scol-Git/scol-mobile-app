@@ -1,7 +1,6 @@
 package org.getscol.gscol.feature.auth.data.api_service
 
 import io.ktor.client.HttpClient
-import io.ktor.client.request.get
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
 import io.ktor.http.ContentType
@@ -18,6 +17,7 @@ import org.getscol.gscol.feature.auth.domain.model.OtpVerificationRequest
 import org.getscol.gscol.feature.auth.domain.model.OtpVerificationResponse
 import org.getscol.gscol.feature.auth.domain.model.RegistrationRequest
 import org.getscol.gscol.feature.auth.domain.model.RegistrationResponse
+import org.getscol.gscol.feature.auth.domain.model.ResendOtpRequest
 import org.getscol.gscol.feature.auth.domain.model.ResendOtpResponse
 
 class AuthApiServiceImpl(
@@ -57,17 +57,27 @@ class AuthApiServiceImpl(
         }
     }
 
-    override suspend fun verifyOtp(otp: String): Result<OtpVerificationResponse, DataError> {
+    override suspend fun verifyOtp(
+        otp: String,
+        otpAccessToken: String
+    ): Result<OtpVerificationResponse, DataError> {
         return newSafeApiCall {
-            httpClient.post("auth/verify-otp") {
+            httpClient.post("v2/auth/verify-otp") {
                 contentType(ContentType.Application.Json)
-                setBody(OtpVerificationRequest(otp = otp))
+                setBody(OtpVerificationRequest(otp = otp, otpAccessToken = otpAccessToken))
+                markAsNoAuth()
             }
         }
     }
 
-    override suspend fun resendOtp(): Result<ResendOtpResponse, DataError> {
-        return newSafeApiCall { httpClient.get("auth/resend-otp") {} }
+    override suspend fun resendOtp(otpAccessToken: String): Result<ResendOtpResponse, DataError> {
+        return newSafeApiCall {
+            httpClient.post("v2/auth/resend-otp") {
+                contentType(ContentType.Application.Json)
+                setBody(ResendOtpRequest(otpAccessToken = otpAccessToken))
+                markAsNoAuth()
+            }
+        }
     }
 
     override suspend fun forgotPassword(

@@ -28,6 +28,7 @@ import org.getscol.gscol.navigation.Route
 import org.getscol.gscol.navigation.ScolNavHost
 import org.getscol.gscol.navigation.TopLevelDestination
 import org.getscol.gscol.navigation.rememberNavigator
+import kotlin.time.Duration.Companion.milliseconds
 
 @OptIn(FlowPreview::class)
 @Composable
@@ -64,11 +65,11 @@ fun ScolApp(
     )
 
     LaunchedEffect(currentLogoutEvent){
-        currentLogoutEvent?.let { navigator.navigateTo(currentLogoutEvent) }
+        currentLogoutEvent?.let { navigator.navigateTo(Route.HomeRoute, true) }
         onLogoutHandler()
     }
 
-    val isOnline by NetworkStatus.isAvailable.debounce(2000L).collectAsState(initial = true)
+    val isOnline by NetworkStatus.isAvailable.debounce(1000L.milliseconds).collectAsState(initial = true)
 
     Box(modifier = Modifier.fillMaxSize()) {
         Scaffold(

@@ -1,10 +1,10 @@
 package org.getscol.gscol.core.data.network
 
 import io.ktor.client.HttpClient
+import io.ktor.client.HttpClientConfig
 import io.ktor.client.call.body
 import io.ktor.client.engine.HttpClientEngine
 import io.ktor.client.plugins.HttpTimeout
-import io.ktor.client.plugins.api.createClientPlugin
 import io.ktor.client.plugins.auth.Auth
 import io.ktor.client.plugins.auth.providers.BearerTokens
 import io.ktor.client.plugins.auth.providers.bearer
@@ -17,10 +17,10 @@ import io.ktor.client.request.post
 import io.ktor.client.request.setBody
 import io.ktor.http.ContentType
 import io.ktor.http.contentType
+import io.ktor.http.isSuccess
 import io.ktor.serialization.kotlinx.json.json
 import kotlinx.serialization.json.Json
 import org.getscol.gscol.core.data.dto.auth.AuthTokenResponse
-import org.getscol.gscol.core.data.dto.auth.RefreshTokenRequest
 import org.getscol.gscol.core.utils.AppLogger
 import org.getscol.gscol.feature.auth.data.AuthTokenProvider
 import org.getscol.gscol.getPlatform
@@ -28,121 +28,114 @@ import org.getscol.gscol.navigation.LogoutEventManager
 import org.getscol.gscol.navigation.NavigationAction
 
 object HttpClientFactory {
+
+    private const val TIMEOUT_MS = 20_000L
+
     fun createHttpClient(
         engine: HttpClientEngine,
         tokenProvider: AuthTokenProvider,
         baseUrl: String
-    ): HttpClient {
+    ): HttpClient = HttpClient(engine) {
+        installJson()
+        installTimeout()
+        installLogging()
+        installAuth(tokenProvider)
 
-        return HttpClient(engine) {
+        defaultRequest {
+            url(baseUrl)
+            contentType(ContentType.Application.Json)
+        }
 
-            install(ContentNegotiation) {
-                json(Json { ignoreUnknownKeys = true })
+    }
+
+    private fun HttpClientConfig<*>.installJson() {
+        install(ContentNegotiation) {
+            json(Json { ignoreUnknownKeys = true })
+        }
+    }
+
+    private fun HttpClientConfig<*>.installTimeout() {
+        install(HttpTimeout) {
+            socketTimeoutMillis = TIMEOUT_MS
+            requestTimeoutMillis = TIMEOUT_MS
+        }
+    }
+
+    private fun HttpClientConfig<*>.installLogging() {
+        install(Logging) {
+            logger = object : Logger {
+                override fun log(message: String) = AppLogger.d(message)
             }
-
-            install(HttpTimeout) {
-                socketTimeoutMillis = 20_000L
-                requestTimeoutMillis = 20_000L
+            level = when {
+                !AppLogger.isEnabled -> LogLevel.NONE
+                getPlatform().platformName == "IOS" -> LogLevel.HEADERS
+                else -> LogLevel.ALL
             }
+        }
+    }
 
-            install(Logging) {
-                logger = object : Logger {
-                    override fun log(message: String) = AppLogger.d(message)
+    /**
+     * The [Auth] bearer plugin fully owns authentication:
+     *  - [sendWithoutRequest] a  decider about add token in header or not
+     *    [markAsNoAuth] (login, register, OTP flow, token refresh). This also records the
+     *    provider's token version, which is what lets [refreshTokens] fire on a 401.
+     *  - [loadTokens] reads from storage; a `null`/blank token is never cached, so it is
+     *    re-read until a real token exists.
+     *  - [refreshTokens] exchanges the refresh token for a new pair on a 401.
+     */
+    private fun HttpClientConfig<*>.installAuth(tokenProvider: AuthTokenProvider) {
+        install(Auth) {
+            bearer {
+                sendWithoutRequest { request -> !request.isMarkedAsNoAuth() }
+
+                loadTokens {
+                    val accessToken = tokenProvider.getAccessToken().orEmpty()
+                    if (accessToken.isBlank()) return@loadTokens null
+                    BearerTokens(
+                        accessToken = accessToken,
+                        refreshToken = tokenProvider.getRefreshToken().orEmpty()
+                    )
                 }
 
-                level = when {
-                    !AppLogger.isEnabled -> LogLevel.NONE
-                    getPlatform().platformName == "IOS" -> LogLevel.HEADERS
-                    else -> LogLevel.ALL
-                }
-            }
-
-            // Install custom plugin to add fresh tokens on each request
-            install(createClientPlugin("DynamicTokenPlugin") {
-                onRequest { request, _ ->
-                    if (!request.isMarkedAsNoAuth()) {
-                        val freshToken = tokenProvider.getAccessToken()
-                        if (!freshToken.isNullOrBlank()) {
-                            request.headers.remove("Authorization")
-                            request.headers.append("Authorization", "Bearer $freshToken")
-                            AppLogger.d("Added fresh token to request: ${request.url}")
-                        } else {
-                            AppLogger.d("No access token available for request")
-                        }
+                refreshTokens {
+                    val refreshToken = tokenProvider.getRefreshToken()
+                    if (refreshToken.isNullOrBlank()) {
+                        logoutAndClear(tokenProvider)
+                        return@refreshTokens null
                     }
-                }
-            })
 
-            install(Auth) {
-                bearer {
-                    loadTokens {
-                        val accessToken = tokenProvider.getAccessToken().orEmpty()
-                        val refreshToken = tokenProvider.getRefreshToken()
-                        if (accessToken.isBlank()) {
-                            AppLogger.d("No access token available")
-                            return@loadTokens null
+                    try {
+                        val response = client.post("auth/refresh") {
+                            markAsNoAuth()
+                            setBody(mapOf("refreshToken" to refreshToken))
                         }
-                        // Never log token values — only presence
-                        AppLogger.d("access token present: true")
-                        AppLogger.d("refreshToken present: ${!refreshToken.isNullOrBlank()}")
-                        BearerTokens(
-                            accessToken = accessToken,
-                            refreshToken = refreshToken.orEmpty()
-                        )
-                    }
 
-                    refreshTokens {
-                        AppLogger.d("go for refreshTokens")
-                        val oldRefreshToken = tokenProvider.getRefreshToken()
-
-                        if (oldRefreshToken.isNullOrBlank()) {
-                            tokenProvider.clearTokens()
-                            LogoutEventManager.sendLogoutEvent(NavigationAction.NavigateToLogInScreen)
+                        if (!response.status.isSuccess()) {
+                            AppLogger.e("Refresh failed with status ${response.status}")
+                            logoutAndClear(tokenProvider)
                             return@refreshTokens null
                         }
 
-                        try {
-                            // Request new tokens
-                            val response: AuthTokenResponse = client.post("auth/refresh") {
-                                contentType(ContentType.Application.Json)
-                                setBody(RefreshTokenRequest(oldRefreshToken))
-                                markAsNoAuth()
-                            }.body()
+                        val tokens = response.body<AuthTokenResponse>().data
 
-                            // Save new tokens
-                            tokenProvider.saveTokens(
-                                response.accessToken,
-                                response.refreshToken
-                            )
-
-                            // Return new tokens to Auth plugin
-                            BearerTokens(
-                                accessToken = response.accessToken.orEmpty(),
-                                refreshToken = response.refreshToken.orEmpty()
-                            )
-
-                        } catch (e: Exception) {
-                            AppLogger.e("Refresh token failed", e)
-                            tokenProvider.clearTokens()
-                            LogoutEventManager.sendLogoutEvent(
-                                NavigationAction.NavigateToLogInScreen
-                            )
-                            null
-                        }
-                    }
-
-                    sendWithoutRequest { request ->
-                        // Don't send bearer token for requests marked as no-auth
-                        // Return false because our custom plugin handles token addition
-                        false
+                        val newRefreshToken = tokens?.refreshToken ?: refreshToken
+                        tokenProvider.saveTokens(tokens?.accessToken, newRefreshToken)
+                        BearerTokens(
+                            accessToken = tokens?.accessToken.orEmpty(),
+                            refreshToken = newRefreshToken
+                        )
+                    } catch (e: Exception) {
+                        AppLogger.e("Refresh token failed", e)
+                        logoutAndClear(tokenProvider)
+                        null
                     }
                 }
             }
-
-            defaultRequest {
-                url(baseUrl)
-                contentType(ContentType.Application.Json)
-            }
         }
+    }
+
+    private suspend fun logoutAndClear(tokenProvider: AuthTokenProvider) {
+        tokenProvider.clearTokens()
+        LogoutEventManager.sendLogoutEvent(NavigationAction.NavigateToLogInScreen)
     }
 }

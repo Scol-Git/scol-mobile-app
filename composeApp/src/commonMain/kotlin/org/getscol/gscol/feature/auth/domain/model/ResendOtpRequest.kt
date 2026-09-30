@@ -4,7 +4,6 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
 @Serializable
-data class OtpVerificationRequest(
-    @SerialName("otp") val otp: String,
+data class ResendOtpRequest(
     @SerialName("otpAccessToken") val otpAccessToken: String
 )

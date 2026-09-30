@@ -93,8 +93,7 @@ fun HomeAppBar(
                         )
                     }
                 ) {
-                    IconButton(onClick = { navigator.navigateToTopLevel(TopLevelDestination.APPLICATION)
-                    }) {
+                    IconButton(onClick = { navigator.navigateToTopLevel(TopLevelDestination.APPLICATION) }) {
                         Icon(
                             painterResource(Res.drawable.route),
                             contentDescription = "Trace"

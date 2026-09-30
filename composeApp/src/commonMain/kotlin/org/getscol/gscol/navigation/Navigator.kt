@@ -27,10 +27,10 @@ class Navigator(
     private val startDestinationRoute = Route.HomeRoute
 
     private val protectedRoutes: Map<KClass<out Route>, String> = mapOf(
-        Route.Profile::class          to "Please login to access your profile",
-        Route.ApplicationList::class  to "Please login to view applications",
-        Route.FavouriteRoute::class     to "Login to view favorite courses",
-        Route.Consultant::class       to "Please login to contact consultants",
+        Route.Profile::class to "Please login to access your profile",
+        Route.ApplicationList::class to "Please login to view applications",
+        Route.FavouriteRoute::class to "Login to view favorite courses",
+        Route.Consultant::class to "Please login to contact consultants",
     )
 
     private fun guardedNavigate(route: KClass<out Route>, navigationBlock: () -> Unit) {

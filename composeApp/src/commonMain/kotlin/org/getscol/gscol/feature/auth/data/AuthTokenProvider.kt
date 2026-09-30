@@ -9,6 +9,12 @@ class AuthTokenProvider(
     private val localStorage: LocalStorage,
     private val session: Session
 ) {
+    /**
+     * Invalidates the Ktor bearer cache so the next request re-reads tokens from storage.
+     * Wired to the [io.ktor.client.HttpClient] in NetworkModule after the client is built.
+     */
+    var invalidateTokenCache: (() -> Unit)? = null
+
     suspend fun saveAccessToken(accessToken: String?) {
         if (accessToken == null) return
         localStorage.setString(StorageKeys.ACCESS_TOKEN, accessToken)
@@ -24,6 +30,7 @@ class AuthTokenProvider(
         saveAccessToken(accessToken)
         saveRefreshToken(refreshToken)
         session.setUserLoggedIn(true)
+        invalidateTokenCache?.invoke()
     }
 
     suspend fun getAccessToken(): String? {
@@ -39,5 +46,6 @@ class AuthTokenProvider(
         localStorage.remove(StorageKeys.ACCESS_TOKEN)
         localStorage.remove(StorageKeys.REFRESH_TOKEN)
         session.setUserLoggedIn(false)
+        invalidateTokenCache?.invoke()
     }
 }

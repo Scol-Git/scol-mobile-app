@@ -17,6 +17,8 @@ interface Session {
     val userFullName: Flow<String?>
     val userJoinedAt: Flow<Int?>
 
+    var otpAccessToken: String?
+
     suspend fun setUserProfile(fullName: String?, joinedAt: Int?)
     suspend fun resetUserPref()
 }

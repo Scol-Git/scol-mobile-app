@@ -13,7 +13,7 @@ import platform.Foundation.NSUserDefaults
 
 actual val platformModule: Module = module {
 
-    single<NSUserDefaults> { NSUserDefaults.Companion.standardUserDefaults() }
+    single<NSUserDefaults> { NSUserDefaults.standardUserDefaults() }
 
     single<HttpClientEngine> {
         Darwin.create()

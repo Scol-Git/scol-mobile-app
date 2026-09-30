@@ -23,7 +23,7 @@ class AuthRepositoryImpl(
     ): Result<RegistrationResponse, DataError> {
         return when (val result = authApiService.register(phone, password, fullName)) {
             is Result.Success -> {
-                authTokenProvider.saveAccessToken(accessToken = result.data.data.otpAccessToken)
+                session.otpAccessToken = result.data.data.otpAccessToken
                 Result.Success(result.data)
             }
             is Result.Error -> Result.Error(result.error)
@@ -58,12 +58,16 @@ class AuthRepositoryImpl(
     }
 
     override suspend fun verifyOtp(otp: String): Result<Unit, DataError> {
-        return when (val result = authApiService.verifyOtp(otp)) {
+        val otpAccessToken = session.otpAccessToken
+            ?: return Result.Error(otpSessionExpiredError())
+
+        return when (val result = authApiService.verifyOtp(otp, otpAccessToken)) {
             is Result.Success -> {
                 val resultData = result.data.data
                 val isUserFillUpAcademicForm = resultData?.user?.academicFormStatus?.lowercase() == "completed"
 
                 authTokenProvider.saveTokens(accessToken = resultData?.accessToken, refreshToken = resultData?.refreshToken)
+                session.otpAccessToken = null
                 session.setUserProfile(
                     fullName = resultData?.user?.fullName,
                     joinedAt = resultData?.user?.joinedAt,
@@ -79,9 +83,11 @@ class AuthRepositoryImpl(
     }
 
     override suspend fun resendOtp(): Result<ResendOtpResponse, DataError> {
-        return when (val result = authApiService.resendOtp()) {
+        val otpAccessToken = session.otpAccessToken ?: return Result.Error(otpSessionExpiredError())
+
+        return when (val result = authApiService.resendOtp(otpAccessToken)) {
             is Result.Success -> {
-                authTokenProvider.saveAccessToken(accessToken = result.data.data?.otpAccessToken)
+                session.otpAccessToken = result.data.data?.otpAccessToken
                 Result.Success(result.data)
             }
             is Result.Error -> Result.Error(result.error)
@@ -91,11 +97,16 @@ class AuthRepositoryImpl(
     override suspend fun forgotPassword(phone: String, newPassword: String): Result<ForgotPasswordResponse, DataError> {
         return when (val result = authApiService.forgotPassword(phone, newPassword)) {
             is Result.Success -> {
-                authTokenProvider.saveAccessToken(accessToken = result.data.data?.otpAccessToken)
+                session.otpAccessToken = result.data.data?.otpAccessToken
                 Result.Success(result.data)
             }
             is Result.Error -> Result.Error(result.error)
         }
     }
 
+    private fun otpSessionExpiredError(): DataError =
+        DataError.RemoteMessage(
+            message = "Your OTP session has expired. Please request a new code.",
+            statusCode = null
+        )
 }
